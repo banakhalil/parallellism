@@ -263,7 +263,19 @@ DATABASES = {
         'PASSWORD': DB_PASSWORD,
         'HOST': DB_HOST,
         'PORT': DB_PORT,
-        'CONN_MAX_AGE': 60,
+        'CONN_MAX_AGE': 0,
+    }
+}
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "db": "1",           # DB 1 to separate cache from Celery (DB 0)
+        },
+        "KEY_PREFIX": "shop",
+        "TIMEOUT": 300,          # default 5 min, overridden per-view in cache_utils.py
     }
 }
 

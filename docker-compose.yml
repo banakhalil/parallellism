@@ -28,6 +28,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: "${DB_PASSWORD:-judyjudy}"
       MYSQL_DATABASE: "${DB_NAME:-shop_db}"
+    command: --max_connections=500
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:

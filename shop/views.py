@@ -1,3 +1,4 @@
+from django.db import transaction, OperationalError
 import os
 import time
 import re
@@ -29,9 +30,14 @@ from shop.thread_pool import get_pool
 from decimal import Decimal
 
 from .models import Cart, Product, Favorite, Store, Order, OrderItem, WalletTransaction, Wallet
-from .serializers import CartSerializer,UserSerializer, StoreSerializer, StoreWithProductsSerializer, ProductSerializer, OrderSerializer, OrderItemSerializer, FavoriteSerializer
+from .serializers import CartSerializer, UserSerializer, StoreSerializer, StoreWithProductsSerializer, ProductSerializer, OrderSerializer, OrderItemSerializer, FavoriteSerializer
 
-
+from django.core.cache import cache
+from shop.cache_utils import (
+    key_products_list, key_product_detail, key_stores_list,
+    CACHE_TTL_PRODUCTS_LIST, CACHE_TTL_PRODUCT_DETAIL, CACHE_TTL_STORES_LIST,
+    invalidate_product, invalidate_stores,
+)
 
 
 class IsAdminUserRole(permissions.BasePermission):
@@ -58,6 +64,7 @@ def register(request):
     return Response({"Errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 # 2. Login
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -98,6 +105,7 @@ def personal_information(request):
 
 # 4. Profile Data (Me)
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
@@ -109,18 +117,40 @@ def me(request):
 
 # views.py
 
+
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_stores(request):
+#     """Display a listing of the stores"""
+#     stores = Store.objects.all()
+#     serializer = StoreSerializer(
+#         stores, many=True, context={'request': request})
+
+#     return Response({
+#         "message": "Stores retrieved successfully",
+#         "stores": serializer.data
+#     }, status=status.HTTP_200_OK)
+
+# بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_stores(request):
-    """Display a listing of the stores"""
+    #  try Redis cache first
+    cache_key = key_stores_list()
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached, status=status.HTTP_200_OK)
+    # جيب من الداتابيز اذا ريديس فاضية
     stores = Store.objects.all()
     serializer = StoreSerializer(
         stores, many=True, context={'request': request})
-
-    return Response({
+    data = {
         "message": "Stores retrieved successfully",
-        "stores": serializer.data
-    }, status=status.HTTP_200_OK)
+        "stores": serializer.data,
+        "cache": "MISS",   # remove this field if you don't want it visible
+    }
+    cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+    return Response(data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -315,18 +345,39 @@ def search_store(request):
     }, status=status.HTTP_200_OK)
 
 
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_products(request):
+#     """Display a listing of the products,index() method."""
+#     products = Product.objects.all()
+#     serializer = ProductSerializer(
+#         products, many=True, context={'request': request})
+
+#     return Response({
+#         "message": "Products retrieved successfully",
+#         "products": serializer.data
+#     }, status=status.HTTP_200_OK)
+
+## بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_products(request):
-    """Display a listing of the products,index() method."""
+    # REQUIREMENT 6: try Redis cache first
+    cache_key = key_products_list()
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached, status=status.HTTP_200_OK)
+ 
     products = Product.objects.all()
-    serializer = ProductSerializer(
-        products, many=True, context={'request': request})
-
-    return Response({
+    serializer = ProductSerializer(products, many=True, context={'request': request})
+    data = {
         "message": "Products retrieved successfully",
-        "products": serializer.data
-    }, status=status.HTTP_200_OK)
+        "products": serializer.data,
+        "cache": "MISS",
+    }
+    cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+    return Response(data, status=status.HTTP_200_OK)
+
 
 
 @api_view(['POST'])
@@ -417,18 +468,37 @@ def create_product(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def retrieve_product(request, id):
+#     """Display the specified product,show() method."""
+#     product = get_object_or_404(Product, id=id)
+#     serializer = ProductSerializer(product, context={'request': request})
+
+#     return Response({
+#         "Response Message": "Product retrieved successfully",
+#         "Product": serializer.data
+#     }, status=status.HTTP_200_OK)
+
+## بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def retrieve_product(request, id):
-    """Display the specified product,show() method."""
+    # REQUIREMENT 6: try Redis cache first
+    cache_key = key_product_detail(id)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return Response(cached, status=status.HTTP_200_OK)
+ 
     product = get_object_or_404(Product, id=id)
     serializer = ProductSerializer(product, context={'request': request})
-
-    return Response({
+    data = {
         "Response Message": "Product retrieved successfully",
-        "Product": serializer.data
-    }, status=status.HTTP_200_OK)
-
+        "Product": serializer.data,
+        "cache": "MISS",
+    }
+    cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+    return Response(data, status=status.HTTP_200_OK)
 
 # After handling the race conditions#######################
 
@@ -522,7 +592,6 @@ def update_product(request, id):
         updates['quantity'] = int(request.data['quantity'])
     if 'price' in request.data:
         updates['price'] = float(request.data['price'])
-
 
     max_retries = 10
     for attempt in range(max_retries):
@@ -721,7 +790,8 @@ def delete_product(request, id):
                 # block deletion if product is already tied to active orders
                 active_order_item_exists = OrderItem.objects.filter(
                     product_id=id,
-                    order__state__in=['pending', 'processed', 'shipped', 'delivered']
+                    order__state__in=['pending',
+                                      'processed', 'shipped', 'delivered']
                 ).exists()
                 if active_order_item_exists:
                     return Response({
@@ -1115,7 +1185,6 @@ def create_order_item(cart_item, order, product_by_id):
 #     }, status=status.HTTP_200_OK)
 
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_order(request):
@@ -1314,15 +1383,12 @@ def create_order(request):
     # JUDY
     # with asynchronous queue (here is Celery), we can send the notification without blocking the main thread
     send_order_notification.delay(order.id, user.email)
-    # without celery, this will block the main thread 
-    #time.sleep(5)
+    # without celery, this will block the main thread
+    # time.sleep(5)
     return Response({
         "Message": "Order Created Successfully",
         "Order": OrderSerializer(order, context={'request': request}).data
     }, status=status.HTTP_200_OK)
-
-
-
 
 
 @api_view(['GET'])
@@ -1402,9 +1468,6 @@ def update_order_status(request):
 
 
 # after the race condition handling
-from django.db import transaction, OperationalError
-from decimal import Decimal
-import time
 
 
 # Ensure your standard imports (Response, status, F, Order, Product, Wallet, etc.) are present
@@ -1444,7 +1507,8 @@ def cancel_order(request, order_id):
                 restore_qty_by_product = {}
                 for item in order_items:
                     restore_qty_by_product[item.product_id] = (
-                            restore_qty_by_product.get(item.product_id, 0) + item.quantity
+                        restore_qty_by_product.get(
+                            item.product_id, 0) + item.quantity
                     )
 
                 product_ids = sorted(restore_qty_by_product.keys())
@@ -1512,6 +1576,7 @@ def cancel_order(request, order_id):
 
     return Response({"message": "Order canceled successfully"})
 
+
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAdminUserRole])  # منع الزبائن من حذف المنتجات
 def update_order_shipped(request):
@@ -1550,9 +1615,6 @@ def update_order_delivered(request):
         "Message": "Orders Delivered Successfully",
         "Order": OrderSerializer(order, context={'request': request}).data
     }, status=status.HTTP_200_OK)
-
-
-
 
 
 # Ensure other imports (Response, status, Wallet, WalletTransaction, etc.) are present
