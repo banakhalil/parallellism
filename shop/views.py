@@ -139,6 +139,7 @@ def list_stores(request):
     cache_key = key_stores_list()
     cached = cache.get(cache_key)
     if cached is not None:
+        cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
     # جيب من الداتابيز اذا ريديس فاضية
     stores = Store.objects.all()
@@ -358,7 +359,7 @@ def search_store(request):
 #         "products": serializer.data
 #     }, status=status.HTTP_200_OK)
 
-## بعد الكاش
+# بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_products(request):
@@ -366,10 +367,12 @@ def list_products(request):
     cache_key = key_products_list()
     cached = cache.get(cache_key)
     if cached is not None:
+        cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
- 
+
     products = Product.objects.all()
-    serializer = ProductSerializer(products, many=True, context={'request': request})
+    serializer = ProductSerializer(
+        products, many=True, context={'request': request})
     data = {
         "message": "Products retrieved successfully",
         "products": serializer.data,
@@ -377,7 +380,6 @@ def list_products(request):
     }
     cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
     return Response(data, status=status.HTTP_200_OK)
-
 
 
 @api_view(['POST'])
@@ -480,7 +482,7 @@ def create_product(request):
 #         "Product": serializer.data
 #     }, status=status.HTTP_200_OK)
 
-## بعد الكاش
+# بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def retrieve_product(request, id):
@@ -488,8 +490,9 @@ def retrieve_product(request, id):
     cache_key = key_product_detail(id)
     cached = cache.get(cache_key)
     if cached is not None:
+        cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
- 
+
     product = get_object_or_404(Product, id=id)
     serializer = ProductSerializer(product, context={'request': request})
     data = {
