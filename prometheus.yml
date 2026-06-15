@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "django"
+    static_configs:
+      - targets:
+          - web1:8001
+          - web2:8002
+          - web3:8003

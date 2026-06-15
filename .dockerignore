@@ -1,0 +1,27 @@
+.git/
+.gitignore
+.vscode/
+.DS_Store
+
+parallelismProjectVenv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+db.sqlite3
+*.sqlite3
+parallel_shop
+
+media/
+products/
+stores/
+
+shop/audit_reports/
+hybrid_benchmark_report.txt
+Project Report.pdf
+Test Plan.jmx
+
+docker-compose*.yml

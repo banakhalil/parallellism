@@ -1,0 +1,20 @@
+parallelismProjectVenv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+parallel_shop
+media/
+products/
+stores/
+.git/
+.gitignore
+.vscode/
+.DS_Store
+hybrid_benchmark_report.txt
+shop/audit_reports/
+Project Report.pdf
+Test Plan.jmx

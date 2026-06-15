@@ -1,0 +1,139 @@
+x-django-base: &django_base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    DJANGO_SETTINGS_MODULE: core.settings
+    DEBUG: "${DEBUG:-1}"
+    SECRET_KEY: "${SECRET_KEY:-docker-dev-secret-key}"
+    ALLOWED_HOSTS: "${ALLOWED_HOSTS:-*}"
+    DB_NAME: "${DB_NAME:-shop_db}"
+    DB_USER: "${DB_USER:-root}"
+    DB_PASSWORD: "${DB_PASSWORD:-judyjudy}"
+    DB_HOST: db
+    DB_PORT: "3306"
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  volumes:
+    - media_files:/app/media
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_PASSWORD:-judyjudy}"
+      MYSQL_DATABASE: "${DB_NAME:-shop_db}"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -P 3306 -u root -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 8m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    <<: *django_base
+    command: python manage.py migrate --noinput
+    restart: "no"
+
+  seed:
+    <<: *django_base
+    profiles: ["seed"]
+    command: >
+      sh -c "python manage.py shell -c \"exec(open('seed.py', encoding='utf-8').read())\" &&
+             python manage.py shell -c \"exec(open('seed_carts.py', encoding='utf-8').read())\""
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  web1:
+    <<: *django_base
+    command: >
+      waitress-serve --threads=100 --connection-limit=2000
+                     --backlog=2048 --port=8001 core.wsgi:application
+    expose:
+      - "8001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web2:
+    <<: *django_base
+    command: >
+      waitress-serve --threads=100 --connection-limit=2000
+                     --backlog=2048 --port=8002 core.wsgi:application
+    expose:
+      - "8002"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web3:
+    <<: *django_base
+    command: >
+      waitress-serve --threads=100 --connection-limit=2000
+                     --backlog=2048 --port=8003 core.wsgi:application
+    expose:
+      - "8003"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  celery:
+    <<: *django_base
+    command: celery -A core worker -l info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  batch:
+    <<: *django_base
+    profiles: ["batch"]
+    command: >
+      python -c "from test_hybrid import run_with_hybrid_model; run_with_hybrid_model()"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "${NGINX_PORT:-8080}:8080"
+    volumes:
+      - ./LoadBalancer/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - web1
+      - web2
+      - web3
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - web1
+      - web2
+      - web3
+
+volumes:
+  mysql_data:
+  media_files:
