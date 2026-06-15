@@ -1,16 +1,27 @@
+Docker Desktop -> Settings -> Docker Engine
+نحط هاد بعدين apply & restart
+{
+"registry-mirrors": [
+"https://mirror.gcr.io",
+"https://dockerhub.azk8s.cn"
+],
+"dns": ["8.8.8.8", "8.8.4.4"]
+}
 
-من اجل الطلب الثاني
-pip install waitress
-waitress-serve --threads=100 --connection-limit=2000 --backlog=2048 --port=8000 core.wsgi:application 
+اول مرة رح ياخد وقت وبدو نت منيح لانو رح ينزل باكجات يفضل تفعلو باقة ساعية، اسفة
 
-## Docker
+تيرمنال المشروع، لنشغلو
 
-Build and start the full stack:
-
-```powershell
-docker compose build
 docker compose up -d
-```
+
+لنعبي الداتابيز يوزرات ومنتجات وكارت ، وبيعمل reset للداتابيز
+docker compose --profile seed run --rm seed
+
+لنعيد تعباية الكارت بس
+docker compose run --rm migrate python manage.py shell -c "exec(open('seed_carts.py', encoding='utf-8').read())"
+
+بس بدنا نطفيه
+docker compose down
 
 The API is available through NGINX at:
 
@@ -22,12 +33,6 @@ Prometheus is available at:
 
 ```text
 http://localhost:9090
-```
-
-Run the seed data job when you want test users, stores, products, and carts:
-
-```powershell
-docker compose --profile seed run --rm seed
 ```
 
 Run the batch benchmark job:
@@ -42,13 +47,14 @@ Stop the stack:
 docker compose down
 ```
 
+من اجل الطلب الثاني
+pip install waitress
+waitress-serve --threads=100 --connection-limit=2000 --backlog=2048 --port=8000 core.wsgi:application
 
 #seeding
 python manage.py shell -c "exec(open('seed.py', encoding='utf-8').read())"
 
- python manage.py shell -c "exec(open('seed_carts.py', encoding='utf-8').read())"
-
-
+python manage.py shell -c "exec(open('seed_carts.py', encoding='utf-8').read())"
 
 pip install django-prometheus
 
@@ -59,14 +65,12 @@ cd C:\prometheus
 
 http://localhost:9090
 
-
 Download Grafana
-
 
 من اجل الطلب الثالث
 1-Install Redis on your machine and start the redis server
 Run each command in a separate terminal window
 1-celery -A core worker -l info
 2-run python server
-3-run : locust 
+3-run : locust
 Watch the celery window while pushing notifications
