@@ -3,7 +3,6 @@
 
 
 import json
-import time
 from django.core.cache import cache
 
 #  TTL constants (seconds)
@@ -35,30 +34,3 @@ def invalidate_product(product_id):
 def invalidate_stores():
     """Call this whenever a store is created, updated, or deleted."""
     cache.delete(key_stores_list())
-
-
-
-
-
-def get_data_with_lock(cache_key, db_callback, ttl):
-    """
-    Retrieves data from cache. If missing, uses a Redis lock to ensure
-    only one request fetches from the database.
-
-    :param cache_key: The key for the cache
-    :param db_callback: A function (lambda) that runs the DB query
-    :param ttl: Time to live for the cache
-    """
-    data = cache.get(cache_key)
-    if data is not None:
-        return data
-    lock_key = f"lock:{cache_key}"
-    with cache.lock(lock_key, timeout=10, blocking_timeout=5):
-        data = cache.get(cache_key)
-        if data is not None:
-            return data
-        print(f"Lock acquired for {cache_key}. Hitting Database...")
-        data = db_callback()
-        cache.set(cache_key, data, ttl)
-
-        return data
