@@ -36,7 +36,7 @@ from django.core.cache import cache
 from shop.cache_utils import (
     key_products_list, key_product_detail, key_stores_list,
     CACHE_TTL_PRODUCTS_LIST, CACHE_TTL_PRODUCT_DETAIL, CACHE_TTL_STORES_LIST,
-    invalidate_product, invalidate_stores,
+    invalidate_product, invalidate_stores, get_data_with_lock
 )
 
 
@@ -132,25 +132,52 @@ def me(request):
 #     }, status=status.HTTP_200_OK)
 
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_stores(request):
+#     #  try Redis cache first
+#     cache_key = key_stores_list()
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#     # جيب من الداتابيز اذا ريديس فاضية
+#     stores = Store.objects.all()
+#     serializer = StoreSerializer(
+#         stores, many=True, context={'request': request})
+#     data = {
+#         "message": "Stores retrieved successfully",
+#         "stores": serializer.data,
+#         "cache": "MISS",   # remove this field if you don't want it visible
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+#     return Response(data, status=status.HTTP_200_OK)
+
+# After cache and locks
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_stores(request):
-    #  try Redis cache first
     cache_key = key_stores_list()
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
-    # جيب من الداتابيز اذا ريديس فاضية
-    stores = Store.objects.all()
-    serializer = StoreSerializer(
-        stores, many=True, context={'request': request})
-    data = {
-        "message": "Stores retrieved successfully",
-        "stores": serializer.data,
-        "cache": "MISS",   # remove this field if you don't want it visible
-    }
-    cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+
+    def fetch_stores_list():
+        stores = Store.objects.all()
+        serializer = StoreSerializer(
+            stores, many=True, context={'request': request})
+        return {
+            "message": "Stores retrieved successfully",
+            "stores": serializer.data,
+            "cache": "MISS",
+        }
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_stores_list,
+        ttl=CACHE_TTL_STORES_LIST
+    )
+
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -360,25 +387,52 @@ def search_store(request):
 #     }, status=status.HTTP_200_OK)
 
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_products(request):
+#     # REQUIREMENT 6: try Redis cache first
+#     cache_key = key_products_list()
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#
+#     products = Product.objects.all()
+#     serializer = ProductSerializer(products, many=True, context={'request': request})
+#     data = {
+#         "message": "Products retrieved successfully",
+#         "products": serializer.data,
+#         "cache": "MISS",
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+#     return Response(data, status=status.HTTP_200_OK)
+
+
+# After cache and lockd
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_products(request):
-    # REQUIREMENT 6: try Redis cache first
     cache_key = key_products_list()
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
 
-    products = Product.objects.all()
-    serializer = ProductSerializer(
-        products, many=True, context={'request': request})
-    data = {
-        "message": "Products retrieved successfully",
-        "products": serializer.data,
-        "cache": "MISS",
-    }
-    cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+    def fetch_products_list():
+        products = Product.objects.all()
+        serializer = ProductSerializer(
+            products, many=True, context={'request': request})
+        return {
+            "message": "Products retrieved successfully",
+            "products": serializer.data,
+            "cache": "MISS",
+        }
+
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_products_list,
+        ttl=CACHE_TTL_PRODUCTS_LIST
+    )
+
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -483,25 +537,53 @@ def create_product(request):
 #     }, status=status.HTTP_200_OK)
 
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def retrieve_product(request, id):
+#     # REQUIREMENT 6: try Redis cache first
+#     cache_key = key_product_detail(id)
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#
+#     product = get_object_or_404(Product, id=id)
+#     serializer = ProductSerializer(product, context={'request': request})
+#     data = {
+#         "Response Message": "Product retrieved successfully",
+#         "Product": serializer.data,
+#         "cache": "MISS",
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+#     return Response(data, status=status.HTTP_200_OK)
+
+
+# After cache and locks
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def retrieve_product(request, id):
-    # REQUIREMENT 6: try Redis cache first
     cache_key = key_product_detail(id)
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
         return Response(cached, status=status.HTTP_200_OK)
 
-    product = get_object_or_404(Product, id=id)
-    serializer = ProductSerializer(product, context={'request': request})
-    data = {
-        "Response Message": "Product retrieved successfully",
-        "Product": serializer.data,
-        "cache": "MISS",
-    }
-    cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+    def fetch_product_data():
+        product = get_object_or_404(Product, id=id)
+        serializer = ProductSerializer(product, context={'request': request})
+        return {
+            "Response Message": "Product retrieved successfully",
+            "Product": serializer.data,
+            "cache": "MISS",
+        }
+
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_product_data,
+        ttl=CACHE_TTL_PRODUCT_DETAIL
+    )
+
     return Response(data, status=status.HTTP_200_OK)
+
 
 # After handling the race conditions#######################
 
