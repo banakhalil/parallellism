@@ -63,7 +63,7 @@ def get_data_with_lock(cache_key, db_callback, ttl):
             return data
         print(f"Lock acquired for {cache_key}. Hitting Database...")
         data = db_callback()
-
+        time.sleep(3)
         cache.set(cache_key, data, ttl)
 
         return data
