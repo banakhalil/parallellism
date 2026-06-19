@@ -269,7 +269,8 @@ DATABASES = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+
+        "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "db": "1",           # DB 1 to separate cache from Celery (DB 0)
@@ -278,6 +279,8 @@ CACHES = {
         "TIMEOUT": 300,          # default 5 min, overridden per-view in cache_utils.py
     }
 }
+
+# "BACKEND": "django.core.cache.backends.redis.RedisCache",
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

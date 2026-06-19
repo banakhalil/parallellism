@@ -1347,9 +1347,19 @@ def create_order(request):
                     idempotency_key=idempotency_key
                 ).first()
                 if existing_order:
+                    # return Response({
+                    #     "Message": "Order already created for this idempotency key",
+                    #     "Order": OrderSerializer(existing_order, context={'request': request}).data
+                    # }, status=status.HTTP_200_OK)
                     return Response({
-                        "Message": "Order already created for this idempotency key",
-                        "Order": OrderSerializer(existing_order, context={'request': request}).data
+                    "Message": "Order Created Successfully",
+                    "Order": {
+                        "id": order.id,
+                        "cost": total_cost,
+                        "state": order.state,
+                        "location": order.location,
+                        "pay_status": order.pay_status,
+                    }
                     }, status=status.HTTP_200_OK)
 
                 # lock this user's cart
@@ -1405,14 +1415,14 @@ def create_order(request):
                         id=product_id,
                         quantity__gte=requested_quantity
                     ).update(quantity=F('quantity') - requested_quantity)
-                    product.refresh_from_db()
-                    print("NEW QUANTITY =", product.quantity)
+                    # product.refresh_from_db()
+                    # print("NEW QUANTITY =", product.quantity)
                     if updated_rows == 0:
                         product = Product.objects.get(id=product_id)
                         return Response({
                             "message": f"Sorry, only {product.quantity} left for {product.name}"
                         }, status=status.HTTP_409_CONFLICT)
-                    product_by_id[product_id].refresh_from_db()
+                    # product_by_id[product_id].refresh_from_db()
 
                 Cart.objects.filter(
                     id__in=[item.id for item in cart_items]).delete()
@@ -1470,9 +1480,19 @@ def create_order(request):
     send_order_notification.delay(order.id, user.email)
     # without celery, this will block the main thread
     # time.sleep(5)
+    # return Response({
+    #     "Message": "Order Created Successfully",
+    #     "Order": OrderSerializer(order, context={'request': request}).data
+    # }, status=status.HTTP_200_OK)
     return Response({
-        "Message": "Order Created Successfully",
-        "Order": OrderSerializer(order, context={'request': request}).data
+    "Message": "Order Created Successfully",
+    "Order": {
+        "id": order.id,
+        "cost": total_cost,
+        "state": order.state,
+        "location": order.location,
+        "pay_status": order.pay_status,
+    }
     }, status=status.HTTP_200_OK)
 
 

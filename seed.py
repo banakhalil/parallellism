@@ -2,6 +2,7 @@ from shop.models import User, Store, Product, Cart, Order, OrderItem
 import os
 import random
 from django.db import connection
+from shop.models import Wallet
 # ─────────────────────────────────────────
 # Grab real image filenames from your folders
 # ─────────────────────────────────────────
@@ -74,6 +75,7 @@ for i in range(1, 401):
     users.append(user)
 
 print(f"   ✅ {len(users)} users created")
+print("Wallet check:", Wallet.objects.filter(balance=1000000).count())
 
 # ─────────────────────────────────────────
 # STEP 3 — Create 3 stores

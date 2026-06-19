@@ -2,6 +2,7 @@
 # Centralized Redis cache helpers
 
 
+import time
 import json
 from django.core.cache import cache
 
@@ -38,9 +39,6 @@ def invalidate_stores():
 
 # cache_utils.py
 
-import time
-from django.core.cache import cache
-
 
 # ... (keep your existing constants and key functions) ...
 
@@ -63,7 +61,6 @@ def get_data_with_lock(cache_key, db_callback, ttl):
             return data
         print(f"Lock acquired for {cache_key}. Hitting Database...")
         data = db_callback()
-        time.sleep(3)
         cache.set(cache_key, data, ttl)
 
         return data
