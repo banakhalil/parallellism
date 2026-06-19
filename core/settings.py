@@ -178,6 +178,8 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 from datetime import timedelta
 from pathlib import Path
 import os
+from pathlib import Path
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -234,6 +236,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django_prometheus.middleware.PrometheusAfterMiddleware',
+    'shop.middleware.CorrelationIdMiddleware'
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -318,3 +321,70 @@ BaseDatabaseWrapper.check_database_version_supported = lambda self: None
 DatabaseFeatures.can_return_rows_from_bulk_insert = property(
     lambda self: False)
 DatabaseFeatures.can_return_columns_from_insert = property(lambda self: False)
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+LOG_BASE_DIR = os.path.join(BASE_DIR, 'logs')
+
+# system services
+SERVICES = ['auth', 'orders', 'shop', 'inventory']
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'correlation_filter': {
+            '()': 'shop.middleware.CorrelationIdFilter', 
+        }
+    },
+    'formatters': {
+        'simple': {
+            'format': '[{asctime}] [{correlation_id}] {levelname}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'filters': ['correlation_filter'],
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {}
+}
+
+for service in SERVICES:
+    service_log_dir = os.path.join(LOG_BASE_DIR, service)
+    os.makedirs(service_log_dir, exist_ok=True) 
+# info handlers
+    LOGGING['handlers'][f'{service}_info'] = {
+        'level': 'INFO',
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': os.path.join(service_log_dir, 'info.log'),
+        'maxBytes': 1024 * 1024 * 5, # 5MB
+        'backupCount': 3,
+        'filters': ['correlation_filter'],
+        'formatter': 'simple',
+    }
+
+  # errors handlers
+    LOGGING['handlers'][f'{service}_error'] = {
+        'level': 'WARNING', # Catches WARNING, ERROR, and CRITICAL
+        'class': 'logging.handlers.RotatingFileHandler',
+        'filename': os.path.join(service_log_dir, 'errors.log'),
+        'maxBytes': 1024 * 1024 * 5,
+        'backupCount': 5,
+        'filters': ['correlation_filter'],
+        'formatter': 'simple',
+    }
+
+    # Register the unique Logger for this service
+    LOGGING['loggers'][f'service.{service}'] = {
+        'handlers': ['console', f'{service}_info', f'{service}_error'],
+        'level': 'DEBUG',
+        'propagate': False,
+    }

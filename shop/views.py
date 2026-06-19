@@ -31,7 +31,7 @@ from decimal import Decimal
 
 from .models import Cart, Product, Favorite, Store, Order, OrderItem, WalletTransaction, Wallet
 from .serializers import CartSerializer, UserSerializer, StoreSerializer, StoreWithProductsSerializer, ProductSerializer, OrderSerializer, OrderItemSerializer, FavoriteSerializer
-
+import logging
 from django.core.cache import cache
 from shop.cache_utils import (
     key_products_list, key_product_detail, key_stores_list,
@@ -39,16 +39,14 @@ from shop.cache_utils import (
     invalidate_product, invalidate_stores,
 )
 
-
 class IsAdminUserRole(permissions.BasePermission):
     """صلاحية تسمح فقط للمستخدمين الذين يحملون دور admin بالوصول"""
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.role == 'admin')
-
+# Auth
+auth_logger =logging.getLogger('service.auth')
 # 1. Register
-
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
@@ -56,11 +54,15 @@ def register(request):
     if serializer.is_valid():
         user = serializer.save(role='customer')
         refresh = RefreshToken.for_user(user)
+        auth_logger.info(f'Registeration successful | UserID: {user.id}|' \
+        'Username:{user.username}')
         return Response({
             "Response Message": "Signed Up Successfully",
             "User": serializer.data,
             "Token": str(refresh.access_token),
         }, status=status.HTTP_201_CREATED)
+    auth_logger.warning(f"Registeration validation failed|'\
+                        Errors:{serializer.errors}")
     return Response({"Errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 # 2. Login
@@ -76,11 +78,14 @@ def login(request):
     if user:
         refresh = RefreshToken.for_user(user)
         serializer = UserSerializer(user)
+        auth_logger.info(f"User login successful| UserID: {user.id} | Phone: {phone_number}")
         return Response({
             "Response Message": f"{user.first_name} Signed In Successfully",
             "User": serializer.data,
             "Token": str(refresh.access_token)
         })
+    auth_logger.warning(f"Failed login attempt | user with phone: {phone_number}")
+    
     return Response({"Response Message": "Wrong Password Or Phone Number"}, status=status.HTTP_400_BAD_REQUEST)
 
 # 3. Personal Information (Update Profile)
@@ -97,10 +102,13 @@ def personal_information(request):
 
     if serializer.is_valid():
         serializer.save()
+        auth_logger.info(f"User profile details updated | UserID: {user.id} ")
         return Response({
             "Message": "Updated successfully",
             "User": serializer.data
         })
+    auth_logger.warning(f" user profile details update failed | UserID: {user.id}|'\
+                        Errors: {serializer.errors}")
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 # 4. Profile Data (Me)
@@ -109,6 +117,7 @@ def personal_information(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me(request):
+    auth_logger.info(f" Profile self-data fetched | UserID: {request.user.id}")
     serializer = UserSerializer(request.user)
     return Response({
         "Response Message": "Profile Data Received Successfully",
@@ -131,6 +140,7 @@ def me(request):
 #         "stores": serializer.data
 #     }, status=status.HTTP_200_OK)
 
+shops_logger=logging.getLogger('service.shops')
 # بعد الكاش
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -140,6 +150,7 @@ def list_stores(request):
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
+        shops_logger.info(f" Stores dataset listed |Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
     # جيب من الداتابيز اذا ريديس فاضية
     stores = Store.objects.all()
@@ -151,6 +162,7 @@ def list_stores(request):
         "cache": "MISS",   # remove this field if you don't want it visible
     }
     cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+    shops_logger.info("Stores dataset listed | Cache: MISS ")
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -161,6 +173,7 @@ def store_products(request):
     store_name = request.query_params.get('name')
 
     if not store_name:
+        shops_logger.warning("store_products requested without providing store's parameter: name ")
         return Response({
             "message": "Store name is required"
         }, status=status.HTTP_400_BAD_REQUEST)
@@ -168,7 +181,7 @@ def store_products(request):
     store = get_object_or_404(Store, name=store_name)
     serializer = StoreWithProductsSerializer(
         store, context={'request': request})
-
+    shops_logger.info(f"Retrieved products for store | StorID: {store.id}| StoreName: {store.name}")
     return Response({
         "message": f"Store {store_name} products retrieved successfully",
         "products": serializer.data['products']
@@ -182,12 +195,14 @@ def create_store(request):
     required_fields = ['name', 'description', 'image', 'location']
     for field in required_fields:
         if field not in request.data:
+            shops_logger.warning(f" Store creation failed | Missing required field: {field}")
             return Response({
                 "Response Message": "Invalid Information",
                 "Errors": {field: [f"{field} is required"]}
             }, status=status.HTTP_400_BAD_REQUEST)
 
     if 'image' not in request.FILES:
+        shops_logger.warning("Store creation failed| Image is required")
         return Response({
             "Response Message": "Invalid Information",
             "Errors": {"image": ["Image file is required"]}
@@ -198,13 +213,14 @@ def create_store(request):
     file_extension = image_file.name.split('.')[-1].lower()
 
     if file_extension not in allowed_extensions:
+        shops_logger.warning(f" Store creation failed| Image extension .{file_extension} is unacceptable")
         return Response({
             "Response Message": "Invalid Information",
             "Errors": {"image": ["Image must be jpeg, png, jpg, gif, or svg"]}
         }, status=status.HTTP_400_BAD_REQUEST)
 
     location = request.data.get('location', '')
-
+    shops_logger.warning(f"Store creation failed| Location regex validation mismatch: {location}")
     if not re.match(r'^[a-zA-Z0-9\s,.-]{1,100}$', location):
         return Response({
             "Response Message": "Invalid Information",
@@ -230,13 +246,14 @@ def create_store(request):
             location=store_data['location'],
             image=file_path
         )
-
+        shops_logger.info(f" Store added successfully| StorId: {store.id} | StoreName: {store.name}")
         return Response({
             "message": "Store added successfully",
             "Store": StoreSerializer(store, context={'request': request}).data
         }, status=status.HTTP_200_OK)
 
     except Exception as e:
+        shops_logger.error(f"Exception throw during store creation transaction | Error: {str(e)}")
         return Response({
             "Response Message": "Error creating store",
             "Errors": {"error": [str(e)]}
@@ -249,7 +266,7 @@ def retrieve_store(request, id):
     """Display the specified store."""
     store = get_object_or_404(Store, id=id)
     serializer = StoreSerializer(store, context={'request': request})
-
+    shops_logger.info(f" Individual store fetched | StoreID: {id} | Name: {store.name}")
     return Response({
         "Response Message": "Store retrieved successfully",
         "Store": serializer.data
@@ -264,6 +281,7 @@ def update_store(request, id):
     location = request.data.get('location')
     if location:
         if not re.match(r'^[a-zA-Z0-9\s,.-]{1,100}$', location):
+            shops_logger.warning(f" Store layout modification failed | Location regex mismatch: '{location}'")
             return Response({
                 "Response Message": "Invalid Information",
                 "Errors": {"location": ["Location format is invalid"]}
@@ -275,6 +293,7 @@ def update_store(request, id):
         file_extension = image_file.name.split('.')[-1].lower()
 
         if file_extension not in allowed_extensions:
+            shops_logger.warning(f"Store file update rejected | Unsupported image extension: .{file_extension}")
             return Response({
                 "Response Message": "Invalid Information",
                 "Errors": {"image": ["Image must be jpeg, png, jpg, gif, or svg"]}
@@ -284,8 +303,8 @@ def update_store(request, id):
             try:
                 if os.path.isfile(store.image.path):
                     os.remove(store.image.path)
-            except:
-                pass
+            except Exception as ex:
+                shops_logger.warning(f"Unable to delete media media image at {store.image.path} | Error: {str(ex)}  ")
 
         timestamp = int(time.time())
         original_filename = image_file.name
@@ -302,7 +321,7 @@ def update_store(request, id):
         store.location = request.data['location']
 
     store.save()
-
+    shops_logger.info(f" Store configuration parameters altered successfully | StoreID: {store.id}")
     return Response({
         "Response Message": "Store updated successfully",
         "Store": StoreSerializer(store, context={'request': request}).data
@@ -315,7 +334,7 @@ def delete_store(request, id):
     """Remove the specified store from storage."""
     store = get_object_or_404(Store, id=id)
     store.delete()
-
+    shops_logger.info(f" Store removed successfully from database | StoreID: {id} | Name: {store.name}")
     return Response({
         "Message : ": "Deleted Successfully"
     }, status=status.HTTP_200_OK)
@@ -328,18 +347,20 @@ def search_store(request):
     store_name = request.query_params.get('name')
 
     if not store_name:
+        shops_logger.warning("Search Store hitted with Empty quety ")
         return Response({
             "Message : ": "Store name is required"
         }, status=status.HTTP_400_BAD_REQUEST)
 
     store = Store.objects.filter(name=store_name).first()
     if not store:
+        shops_logger.info(f"Store search executed with zero results returned | Query: {store_name}")
         return Response({
             "Message : ": "Store Not Found"
         }, status=status.HTTP_404_NOT_FOUND)
 
     serializer = StoreSerializer(store, context={'request': request})
-
+    shops_logger.info(f"Store search execution hit | Query: {store_name}")
     return Response({
         "Message : ": "Store Retrieved Successfully",
         "Store : ": serializer.data
@@ -368,6 +389,7 @@ def list_products(request):
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
+        shops_logger.info("Products inventory catalog listed | Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
 
     products = Product.objects.all()
@@ -379,6 +401,7 @@ def list_products(request):
         "cache": "MISS",
     }
     cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+    shops_logger.info("Products inventory catalog listed | Cache: MISS")
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -390,12 +413,14 @@ def create_product(request):
                        'price', 'image', 'brand', 'store_name']
     for field in required_fields:
         if field not in request.data:
+            shops_logger.warning(f" product createion aborted | Missing required input variable: {field}")
             return Response({
                 "Response Message": "Invalid Information",
                 "Errors": {field: [f"{field} is required"]}
             }, status=status.HTTP_400_BAD_REQUEST)
 
     if 'image' not in request.FILES:
+        shops_logger.warning(f"Product creation aborted | Image elements missing")
         return Response({
             "Response Message": "Invalid Information",
             "Errors": {"image": ["Image file is required"]}
@@ -406,6 +431,7 @@ def create_product(request):
     file_extension = image_file.name.split('.')[-1].lower()
 
     if file_extension not in allowed_extensions:
+        shops_logger.warning(f"Product creation aborted | Extension is unacceptable .{file_extension}")
         return Response({
             "Response Message": "Invalid Information",
             "Errors": {"image": ["Image must be jpeg, png, jpg, gif, or svg"]}
@@ -457,13 +483,15 @@ def create_product(request):
         )
 
         store.products.add(product)
-
+        shops_logger.info(f"Product mapped and saved | ProductID: {product.id}'\
+                          ProductName: {product.name} | AssignedToStore : {store_name}")
         return Response({
             "Response Message": "Product added successfully",
             "Product": ProductSerializer(product, context={'request': request}).data
         }, status=status.HTTP_200_OK)
 
     except Exception as e:
+        shops_logger.error(f"Error creating product | Error: {str(e)}")
         return Response({
             "Response Message": "Error creating product",
             "Errors": {"error": [str(e)]}
@@ -491,6 +519,7 @@ def retrieve_product(request, id):
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
+        shops_logger.info(f"Product layout record detailed | ProductID: {id} | Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
 
     product = get_object_or_404(Product, id=id)
@@ -501,6 +530,7 @@ def retrieve_product(request, id):
         "cache": "MISS",
     }
     cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+    shops_logger.info(f"Product layout record detailed | ProductID: {id} | Cache: MISS")
     return Response(data, status=status.HTTP_200_OK)
 
 # After handling the race conditions#######################
@@ -514,6 +544,7 @@ def update_product(request, id):
 
     expected_version_raw = request.data.get('expected_version')
     if expected_version_raw is None:
+        shops_logger.warning(f"Update Product failed | Missing version verification tracking token for ProductID: {id}")
         return Response({
             "Response Message": "Invalid Information",
             "Errors": {"expected_version": ["expected_version is required for optimistic locking"]}
@@ -610,10 +641,11 @@ def update_product(request, id):
                     # This means the version changed (Optimistic Lock failure)
                     latest_product = Product.objects.filter(id=id).first()
                     if latest_product is None:
+                        shops_logger.warning(f"Product update target missing on state validation | ProductID: {id}")
                         return Response({
                             "Response Message": "Product not found"
                         }, status=status.HTTP_404_NOT_FOUND)
-
+                    shops_logger.warning(f"Optimistic Lock Version Mismatch Conflict | ProductID: {id} | Expected: {expected_version} | Database possesses newer version token.")
                     return Response({
                         "Response Message": "Product was modified by another request. Please refresh and retry.",
                         "Product": ProductSerializer(latest_product, context={'request': request}).data
@@ -622,9 +654,10 @@ def update_product(request, id):
         except OperationalError as e:
             # Handle Database Deadlocks
             if '1213' in str(e) and attempt < max_retries - 1:
+                shops_logger.warning(f"Database Deadlock event 1213 encountered during product mutation | ProductID: {id} | Attempt: {attempt + 1}/{max_retries}. Yielding thread briefly...")
                 time.sleep(0.05 * (attempt + 1))
                 continue
-
+            shops_logger.error(f"Pessimistic transaction failure. Max retries exhausted on resource deadlock exception cycle | ProductID: {id} | Error: {str(e)}")
             return Response({
                 "message": "System is busy, please try again."
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -634,12 +667,12 @@ def update_product(request, id):
         try:
             if os.path.isfile(old_image_path):
                 os.remove(old_image_path)
-        except:
-            pass
+        except Exception as ex:
+            shops_logger.warning(f"Failed cleaning storage image file variant: {old_image_path} | Error: {str(ex)}")
 
     # Fetch the final updated product to return in response
     product = Product.objects.get(id=id)
-
+    shops_logger.info(f"Product update transaction completed successfully | ProductID: {id} | New Version Token: {product.version}")
     return Response({
         "Response Message": "Product updated successfully",
         "Product": ProductSerializer(product, context={'request': request}).data
@@ -732,6 +765,7 @@ def search_product(request):
     product_name = request.query_params.get('name')
 
     if not product_name:
+        shops_logger.warning("Empty validation string evaluated inside search_product endpoint parameter parsing lookup")
         return Response({
             "Message : ": "Product name is required"
         }, status=status.HTTP_400_BAD_REQUEST)
@@ -739,12 +773,13 @@ def search_product(request):
     product = Product.objects.filter(name=product_name).first()
 
     if not product:
+        shops_logger.info(f"Product search completed returning empty record response | Query string evaluation: '{product_name}'")
         return Response({
             "Message : ": "Product Not Found"
         }, status=status.HTTP_404_NOT_FOUND)
 
     serializer = ProductSerializer(product, context={'request': request})
-
+    shops_logger.info(f"Product search successfully returned matching database record object reference | Query: '{product_name}' | ProductID: {product.id}")
     return Response({
         "Message : ": "Product Retrieved Successfully",
         "Product : ": serializer.data
@@ -772,6 +807,7 @@ def delete_product(request, id):
                 # lock the product row
                 product = Product.objects.select_for_update().filter(id=id).first()
                 if not product:
+                    shops_logger.warning(f"Product deletion target dropped before lock instantiation | ProductID: {id}")
                     return Response({
                         "message": "Product not found"
                     }, status=status.HTTP_404_NOT_FOUND)
@@ -797,6 +833,7 @@ def delete_product(request, id):
                                       'processed', 'shipped', 'delivered']
                 ).exists()
                 if active_order_item_exists:
+                    shops_logger.warning(f"Product deletion rejected due to relational foreign constraint integrity block | ProductID: {id} | Found active related orders.")
                     return Response({
                         "message": "Cannot delete product because it is referenced by active orders."
                     }, status=status.HTTP_409_CONFLICT)
@@ -815,8 +852,10 @@ def delete_product(request, id):
         except OperationalError as e:
             # If it's a deadlock and we haven't exhausted retries, sleep and try again
             if '1213' in str(e) and attempt < max_retries - 1:
+                shops_logger.warning(f"Database deadlock encounter 1213 tracking row release on product deletion transaction | ProductID: {id} | Attempt: {attempt + 1}/{max_retries}")
                 time.sleep(0.05 * (attempt + 1))
                 continue
+            shops_logger.error(f"Resource deadlock transaction exception loops broken during critical deletion run phase | ProductID: {id} | Error: {str(e)}")
             return Response({
                 "message": "System is busy, please try again."
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -826,9 +865,9 @@ def delete_product(request, id):
         try:
             if os.path.isfile(image_path):
                 os.remove(image_path)
-        except Exception:
-            pass
-
+        except Exception as ex:
+            shops_logger.warning(f"Unclean removal tracking of static disk image on file deletion chain reference: {image_path} | Error: {str(ex)}")
+    shops_logger.info(f"Product records scrubbed completely across all related dependencies | ProductID: {id} | Name: '{product_name}' | Cleaned Carts Count: {removed_from_carts} | Cleaned Favorites: {removed_from_favorites}")
     return Response({
         "Message : ": "Deleted Successfully",
         "Product": product_name,
@@ -855,9 +894,11 @@ def delete_product(request, id):
 # Get All Cart Items
 # =========================
 
+cart_logger=logging.getLogger('service.cart')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def cart_index(request):
+    cart_logger.info(f"User reading shopping cart dataset matrix contents | UserID: {request.user.id}")
 
     carts = Cart.objects.filter(
         user=request.user
@@ -884,6 +925,7 @@ def cart_store(request):
     try:
         product = Product.objects.get(name=name)
     except Product.DoesNotExist:
+        cart_logger.warning(f"Failed cart insertion pipeline | Target product entity matching name not found: '{name}' | UserID: {request.user.id}")
         return Response({'message': 'Product not found'}, status=404)
 
     cart_item = Cart.objects.filter(user=request.user, product=product).first()
@@ -892,6 +934,10 @@ def cart_store(request):
     total_requested_quantity = current_in_cart + quantity_to_add
 
     if total_requested_quantity > product.quantity:
+        cart_logger.warning(
+            f"Cart modification blocked: Insufficient inventory stock | UserID: {request.user.id} | "
+            f"ProductID: {product.id} | Requested: {total_requested_quantity} | Available: {product.quantity}"
+        )
         return Response({
             'message': f'Sorry, only {product.quantity} items available in stock. You already have {current_in_cart} in cart.',
             'available_stock': product.quantity
@@ -901,6 +947,7 @@ def cart_store(request):
         cart_item.quantity = total_requested_quantity
         cart_item.price += product.price * quantity_to_add
         cart_item.save()
+        cart_logger.info(f"Cart line item updated | UserID: {request.user.id} | ProductID: {product.id} | Added: {quantity_to_add} | Total: {total_requested_quantity}")
     else:
         Cart.objects.create(
             user=request.user,
@@ -908,7 +955,7 @@ def cart_store(request):
             quantity=quantity_to_add,
             price=product.price * quantity_to_add
         )
-
+    cart_logger.info(f"New cart line item created | UserID: {request.user.id} | ProductID: {product.id} | Quantity: {quantity_to_add}")
     return Response({'message': 'Product added to cart successfully'})
 
 
@@ -928,12 +975,13 @@ def cart_destroy(request):
     ).first()
 
     if not cart:
+        cart_logger.warning(f"Cart line item deletion failed | Product record entry missing inside database context | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "Cart item not found"
         }, status=404)
 
     cart.delete()
-
+    cart_logger.info(f"Cart line item completely destroyed | UserID: {request.user.id} | ProductID: {product_id}")
     return Response({
         "message": "Cart item deleted successfully"
     })
@@ -953,12 +1001,14 @@ def increase_cart(request):
     ).first()
 
     if not cart:
+        cart_logger.warning(f"Failed to increment cart quantity | Record item not found | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "Cart item not found"
         }, status=404)
 
     # التحقق من الكمية المتوفرة
     if cart.quantity >= cart.product.quantity:
+        cart_logger.warning(f"Cart quantity increment denied: Stock ceiling capacity reached | UserID: {request.user.id} | ProductID: {product_id} | Available Stock: {cart.product.quantity}")
         return Response({
             "message": f"Sorry, only {cart.product.quantity} items available",
             "available_quantity": cart.product.quantity
@@ -968,7 +1018,7 @@ def increase_cart(request):
     cart.quantity += 1
     cart.price += cart.product.price
     cart.save()
-
+    cart_logger.info(f"Cart line item volume incremented | UserID: {request.user.id} | ProductID: {product_id} | New Qty: {cart.quantity}")
     return Response({
         "message": "Quantity increased",
         "cart": CartSerializer(cart).data
@@ -987,6 +1037,7 @@ def decrease_cart(request):
     ).first()
 
     if not cart:
+        cart_logger.warning(f"Failed to decrement cart quantity | Record item not found | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "Cart item not found"
         }, status=404)
@@ -995,20 +1046,21 @@ def decrease_cart(request):
         cart.quantity -= 1
         cart.price -= cart.product.price
         cart.save()
-
+        cart_logger.info(f"Cart line item volume decremented | UserID: {request.user.id} | ProductID: {product_id} | New Qty: {cart.quantity}")
     else:
         cart.delete()
-
+        cart_logger.info(f"Cart line item removed via decrement operation | UserID: {request.user.id} | ProductID: {product_id}")
     return Response({
         "message": "Quantity decreased"
     })
 
-
+favorite_logger=logging.getLogger('service.favorite')
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_product_favorite(request):
     product_id = request.data.get('product_id')
     if not product_id:
+        favorite_logger.warning(f"Failed adding item to wishlist | Target product not found | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "product_id is required"
         }, status=400)
@@ -1023,6 +1075,7 @@ def add_product_favorite(request):
         product=product
     ).exists()
     if favorite_exists:
+        favorite_logger.info(f"Ignored add_product_favorite request | Unique relational constraint mapping already exists | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "Already in favorites"
         }, status=400)
@@ -1030,6 +1083,7 @@ def add_product_favorite(request):
         user=request.user,
         product=product
     )
+    favorite_logger.info(f"Product successfully pinned to user profile wishlist index | UserID: {request.user.id} | ProductID: {product_id}")
     return Response({
         "message": "Product added to favorites",
         "status": True
@@ -1039,6 +1093,7 @@ def add_product_favorite(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_product_favorite(request):
+    favorite_logger.info(f"User reading profile favorites records index list | UserID: {request.user.id}")
     favorites = Favorite.objects.filter(
         user=request.user
     ).select_related('product')
@@ -1062,23 +1117,25 @@ def delete_product_favorite(request):
         product_id=product_id
     ).first()
     if not favorite:
+        favorite_logger.warning(f"Failed removing item from wishlist | Unique profile relationship map not found | UserID: {request.user.id} | ProductID: {product_id}")
         return Response({
             "message": "Favorite product not found",
             "status": False
         }, status=404)
 
     favorite.delete()
-
+    favorite_logger.info(f"Product unpinned from user profile wishlist layout map index | UserID: {request.user.id} | ProductID: {product_id}")
     return Response({
         "message": "Favorite product deleted successfully",
         "status": True
     })
 
-
+order_logger=logging.getLogger('service.order')
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_user_orders(request):
     """Lis the user's orders. index1() method."""
+    order_logger.info(f"User loading order history records layout map index | UserID: {request.user.id}")
     user = request.user
     orders = Order.objects.filter(user=user)
     serializer = OrderSerializer(
@@ -1104,7 +1161,7 @@ def order_details(request):
     order_items = order.items.all()
     serializer = OrderItemSerializer(
         order_items, many=True, context={'request': request})
-
+    order_logger.info(f"Order metadata components inspection loaded | UserID: {request.user.id} | OrderID: {order_id}")
     return Response({
         "Items": serializer.data,
         "Message : ": "Retrieved Successfully"
@@ -1196,7 +1253,7 @@ def create_order(request):
     idempotency_key = request.headers.get(
         'Idempotency-Key') or request.data.get('idempotency_key')
     if not idempotency_key:
-
+        order_logger.warning(f"Checkout transaction request rejected: Missing Idempotency Verification Token | UserID: {user.id}")
         return Response({
             "message": "Idempotency key is required (send Idempotency-Key header or idempotency_key field)."
         }, status=status.HTTP_400_BAD_REQUEST)
@@ -1265,6 +1322,7 @@ def create_order(request):
                     idempotency_key=idempotency_key
                 ).first()
                 if existing_order:
+                    order_logger.info(f"Idempotency token cache layer match found | Order processing bypass executed | UserID: {user.id} | OrderID: {existing_order.id} | Key: {idempotency_key}")
                     return Response({
                         "Message": "Order already created for this idempotency key",
                         "Order": OrderSerializer(existing_order, context={'request': request}).data
@@ -1276,6 +1334,7 @@ def create_order(request):
                         'product').filter(user=user).order_by('id')
                 )
                 if not cart_items:
+                    order_logger.warning(f"Checkout transaction request rejected: Shopping cart completely empty | UserID: {user.id}")
                     return Response({
                         "message": "Cannot create an order with an empty cart."
                     }, status=status.HTTP_400_BAD_REQUEST)
@@ -1293,6 +1352,7 @@ def create_order(request):
                     id__in=product_ids).order_by('id'))
                 product_by_id = {product.id: product for product in products}
                 if len(product_by_id) != len(product_ids):
+                    order_logger.error(f"Checkout transaction pipeline failed | Relational product mapping length inconsistency | UserID: {user.id}")
                     return Response({
                         "message": "One or more products are no longer available."
                     }, status=status.HTTP_404_NOT_FOUND)
@@ -1302,6 +1362,7 @@ def create_order(request):
                     product = product_by_id[product_id]
                     requested_quantity = requested_quantity_by_product[product_id]
                     if requested_quantity > product.quantity:
+                        order_logger.warning(f"Checkout transactional bounds exceeded: Product layout stock drop | UserID: {user.id} | ProductID: {product_id} | Requested: {requested_quantity} | Available: {product.quantity}")
                         return Response({
                             "message": f"Sorry, only {product.quantity} left for {product.name}"
                         }, status=status.HTTP_409_CONFLICT)
@@ -1327,6 +1388,7 @@ def create_order(request):
                     print("NEW QUANTITY =", product.quantity)
                     if updated_rows == 0:
                         product = Product.objects.get(id=product_id)
+                        order_logger.error(f"Concurrency lock update collision while modifying quantities | UserID: {user.id} | ProductID: {product_id}")
                         return Response({
                             "message": f"Sorry, only {product.quantity} left for {product.name}"
                         }, status=status.HTTP_409_CONFLICT)
@@ -1355,8 +1417,10 @@ def create_order(request):
             break
         except OperationalError as e:
             if '1213' in str(e) and attempt < max_retries - 1:
+                order_logger.warning(f"Resource contention deadlock 1213 identified inside checkout block framework | UserID: {user.id} | Attempt: {attempt + 1}/{max_retries}. Pausing execution...")
                 time.sleep(0.05 * (attempt + 1))
                 continue
+            order_logger.error(f"Critical exception crash cycle inside order creation engine framework sequence logic | UserID: {user.id} | Error: {str(e)}")
             return Response({
                 "message": "System is busy, please try again."
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -1378,6 +1442,7 @@ def create_order(request):
 
     if errors:
         order.delete()
+        order_logger.error(f"ThreadPool runtime compilation exceptions encountered. Rolled back order entry | UserID: {user.id} | Exception Context: {errors[0]}")
         return Response({"message": errors[0]}, status=status.HTTP_400_BAD_REQUEST)
 
     order.cost = total_cost
@@ -1388,6 +1453,7 @@ def create_order(request):
     send_order_notification.delay(order.id, user.email)
     # without celery, this will block the main thread
     # time.sleep(5)
+    order_logger.info(f"Order created successfully | UserID: {user.id} | OrderID: {order.id} | Final Invoice Cost: {total_cost} | Background notification worker triggered")
     return Response({
         "Message": "Order Created Successfully",
         "Order": OrderSerializer(order, context={'request': request}).data
@@ -1398,6 +1464,7 @@ def create_order(request):
 @permission_classes([IsAdminUserRole])  # منع الزبائن من حذف المنتجات
 def list_pending_orders(request):
     """listing of pending orders (alternative endpoint),show() method"""
+    order_logger.info(f"Admin indexing system reading master pending orders queue layout maps | AdminUserID: {request.user.id}")
     orders = Order.objects.filter(state='pending')
     serializer = OrderSerializer(
         orders, many=True, context={'request': request})
@@ -1410,8 +1477,8 @@ def list_pending_orders(request):
 @permission_classes([IsAdminUserRole])
 def update_order_status(request):
     """Update order status,update() method."""
-    # This is a placeholder since the original PHP implementation had issues
-    # In practice, this would update specific order statuses
+    
+    order_logger.info(f"Admin executed general status tracking updates | AdminUserID: {request.user.id}")
     return Response({
         "Message : ": "The order is being delivered"
     }, status=status.HTTP_200_OK)
@@ -1487,12 +1554,15 @@ def cancel_order(request, order_id):
                 order = Order.objects.select_for_update().filter(
                     id=order_id, user=request.user).first()
                 if not order:
+                    order_logger.warning(f"Order cancellation abort: Target resource record missing from user file index structures | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
 
                 if order.state == 'canceled':
+                    order_logger.info(f"Bypassed cancel operation: Order entry status flag already marks item as canceled | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"message": "Order already canceled"}, status=status.HTTP_200_OK)
 
                 if order.state in ['shipped', 'delivered']:
+                    order_logger.warning(f"Order cancellation denied: Shipping fulfillment pipeline has progressed too far | UserID: {request.user.id} | OrderID: {order_id} | Status: '{order.state}'")
                     return Response(
                         {"error": f"Cannot cancel order in state '{order.state}'"},
                         status=status.HTTP_409_CONFLICT
@@ -1505,6 +1575,7 @@ def cancel_order(request, order_id):
                     .filter(order=order)
                 )
                 if not order_items:
+                    order_logger.warning(f"Order cancellation aborted: Zero bound transaction items found attached to entity structure context | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"error": "Order has no items to cancel"}, status=status.HTTP_400_BAD_REQUEST)
 
                 restore_qty_by_product = {}
@@ -1520,6 +1591,7 @@ def cancel_order(request, order_id):
                     Product.objects.select_for_update().filter(id__in=product_ids))
 
                 if len(products) != len(product_ids):
+                    order_logger.error(f"Order cancellation failed: Mapped internal product IDs mismatched or deleted | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"error": "One or more products no longer exist"}, status=status.HTTP_404_NOT_FOUND)
 
                 product_by_id = {p.id: p for p in products}
@@ -1530,6 +1602,7 @@ def cancel_order(request, order_id):
                         f"Processing refund for order #{order.id}, pay_status={order.pay_status}")
                     wallet = Wallet.objects.select_for_update().filter(user=request.user).first()
                     if not wallet:
+                        order_logger.error(f"ledger processing error during refund execution loop: User wallet reference allocation missing | UserID: {request.user.id} | OrderID: {order_id}")
                         return Response({"error": "No wallet linked to this account"}, status=status.HTTP_404_NOT_FOUND)
 
                     existing_refund = WalletTransaction.objects.filter(
@@ -1539,8 +1612,7 @@ def cancel_order(request, order_id):
                     ).first()
 
                     if existing_refund:
-                        print(
-                            f"Refund already exists for order #{order.id}, transaction #{existing_refund.id}")
+                     order_logger.warning(f"Duplicate refund processing skipped: Ledger record matching key parameters exists | UserID: {request.user.id} | OrderID: {order_id} | RefundTransactionID: {existing_refund.id}")
                     else:
                         refund_amount = Decimal(str(order.cost))
                         print(
@@ -1554,12 +1626,9 @@ def cancel_order(request, order_id):
                             transaction_type='refund',
                             description=f"Refund for canceled order #{order.id}"
                         )
-                        print(
-                            f"Refund transaction created successfully for order #{order.id}")
+                        order_logger.info(f"Financial ledger credit adjustment posted inside active wallet index layout matrix balances | UserID: {request.user.id} | OrderID: {order_id} | Total Returned: {refund_amount}")
                 else:
-                    print(
-                        f"Order #{order.id} was not paid (pay_status={order.pay_status}), skipping refund")
-
+                        order_logger.info(f"Skipping financial refund routines: Target invoice flags mark order settlement balance as unpaid | OrderID: {order.id}")
                 # Restore product quantities
                 for product_id, qty in restore_qty_by_product.items():
                     Product.objects.filter(id=product_id).update(
@@ -1570,13 +1639,15 @@ def cancel_order(request, order_id):
                 order.save(update_fields=['state', 'pay_status'])
         except OperationalError as e:
             if '1213' in str(e) and attempt < max_retries - 1:
+                order_logger.warning(f"Deadlock 1213 tracking encountered on order cancellation execution thread | UserID: {request.user.id} | OrderID: {order_id} | Attempt: {attempt + 1}/{max_retries}")
                 time.sleep(0.05 * (attempt + 1))
                 continue
+            order_logger.error(f"Critical error loop broken: Max processing retries broken during cancellation run phases | UserID: {request.user.id} | OrderID: {order_id} | Error: {str(e)}")
             return Response({
                 "message": "System is busy, please try again."
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         break
-
+    order_logger.info(f"Order has been safely cancelled and stock profiles have successfully returned to catalog files | UserID: {request.user.id} | OrderID: {order_id}")
     return Response({"message": "Order canceled successfully"})
 
 
@@ -1586,6 +1657,7 @@ def update_order_shipped(request):
     """Update order state to 'shipped'"""
     order_id = request.data.get('order_id')
     if not order_id:
+        
         return Response({
             "Message": "Order ID is required"
         }, status=status.HTTP_400_BAD_REQUEST)
@@ -1593,7 +1665,7 @@ def update_order_shipped(request):
     order = get_object_or_404(Order, id=order_id)
     order.state = 'shipped'
     order.save()
-
+    order_logger.info(f"Admin flagged order status index parameter tracking configuration as SHIPPED | AdminUserID: {request.user.id} | OrderID: {order_id}")
     return Response({
         "Message": "Orders Shipped Successfully",
         "Order": OrderSerializer(order, context={'request': request}).data
@@ -1613,7 +1685,7 @@ def update_order_delivered(request):
     order = get_object_or_404(Order, id=order_id)
     order.state = 'delivered'
     order.save()
-
+    order_logger.info(f"Admin flagged order status index parameter tracking configuration as DELIVERED | AdminUserID: {request.user.id} | OrderID: {order_id}")
     return Response({
         "Message": "Orders Delivered Successfully",
         "Order": OrderSerializer(order, context={'request': request}).data
@@ -1634,14 +1706,17 @@ def pay_order_by_wallet(request, order_id):
                 order = Order.objects.select_for_update().filter(
                     id=order_id, user=request.user).first()
                 if not order:
+                    order_logger.warning(f"Wallet billing failed: Order entry missing from database context | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"error": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
                 if order.pay_status:
+                    order_logger.info(f"Wallet settlement routine safely bypassed: Invoicing marks entity as already processed | UserID: {request.user.id} | OrderID: {order_id}")
                     return Response({"error": "Already paid"}, status=status.HTTP_400_BAD_REQUEST)
                 # 2. Lock the Wallet row
                 wallet = Wallet.objects.select_for_update().get(user=request.user)
                 print(f"{request.user.phone_number} locked wallet")
 
                 if wallet.balance < order.cost:
+                    order_logger.warning(f"Wallet billing transaction rejected: Insufficient credit value margins | UserID: {request.user.id} | OrderID: {order_id} | InvoiceCost: {order.cost} | Balance: {wallet.balance}")
                     return Response({"error": "Balance not enough"}, status=status.HTTP_400_BAD_REQUEST)
 
                 # 3. Deduct balance
@@ -1665,12 +1740,14 @@ def pay_order_by_wallet(request, order_id):
         except OperationalError as e:
             # Handle Deadlocks (Error code 1213 is common for MySQL)
             if '1213' in str(e) and attempt < max_retries - 1:
+                order_logger.warning(f"Database deadlock 1213 identified inside wallet settlement pipeline loop | UserID: {request.user.id} | OrderID: {order_id} | Attempt: {attempt + 1}/{max_retries}")
                 time.sleep(0.05 * (attempt + 1))
                 continue
+            order_logger.error(f"Pessimistic concurrency exception loop broken: Max execution attempts broken | UserID: {request.user.id} | OrderID: {order_id} | Error: {str(e)}")
             return Response({
                 "message": "System is busy, please try again."
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         break
-
+    order_logger.info(f"Financial transaction payment settled securely through active wallet channels | UserID: {request.user.id} | OrderID: {order_id} | Debited Amount value: {order.cost}")
     return Response({"message": "Paid successfully"})
