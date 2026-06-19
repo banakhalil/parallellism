@@ -272,7 +272,8 @@ DATABASES = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+
+        "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "db": "1",           # DB 1 to separate cache from Celery (DB 0)
@@ -281,6 +282,8 @@ CACHES = {
         "TIMEOUT": 300,          # default 5 min, overridden per-view in cache_utils.py
     }
 }
+
+# "BACKEND": "django.core.cache.backends.redis.RedisCache",
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -330,7 +333,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 LOG_BASE_DIR = os.path.join(BASE_DIR, 'logs')
 
 # system services
-SERVICES = ['auth', 'orders', 'shop', 'inventory']
+SERVICES = ['auth', 'order', 'cart', 'favorite','shops']
 
 LOGGING = {
     'version': 1,
@@ -373,7 +376,7 @@ for service in SERVICES:
 
   # errors handlers
     LOGGING['handlers'][f'{service}_error'] = {
-        'level': 'WARNING', # Catches WARNING, ERROR, and CRITICAL
+        'level': 'ERROR', # Catches WARNING, ERROR, and CRITICAL
         'class': 'logging.handlers.RotatingFileHandler',
         'filename': os.path.join(service_log_dir, 'errors.log'),
         'maxBytes': 1024 * 1024 * 5,

@@ -56,3 +56,4 @@ django-prometheus
 mysqlclient
 waitress
 APScheduler
+django-redis

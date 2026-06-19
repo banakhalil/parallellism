@@ -20,6 +20,7 @@ x-django-base: &django_base
       condition: service_healthy
   volumes:
     - media_files:/app/media
+    - ./logs:/app/logs
 
 services:
   db:
@@ -66,7 +67,7 @@ services:
   web1:
     <<: *django_base
     command: >
-      waitress-serve --threads=100 --connection-limit=2000
+      waitress-serve --host=0.0.0.0 --threads=100 --connection-limit=2000
                      --backlog=2048 --port=8001 core.wsgi:application
     expose:
       - "8001"
@@ -77,8 +78,8 @@ services:
   web2:
     <<: *django_base
     command: >
-      waitress-serve --threads=100 --connection-limit=2000
-                     --backlog=2048 --port=8002 core.wsgi:application
+      waitress-serve --host=0.0.0.0 --threads=100 --connection-limit=2000
+                     --backlog=2048 --port=8001 core.wsgi:application
     expose:
       - "8002"
     depends_on:
@@ -88,8 +89,8 @@ services:
   web3:
     <<: *django_base
     command: >
-      waitress-serve --threads=100 --connection-limit=2000
-                     --backlog=2048 --port=8003 core.wsgi:application
+      waitress-serve --host=0.0.0.0 --threads=100 --connection-limit=2000
+                     --backlog=2048 --port=8001 core.wsgi:application
     expose:
       - "8003"
     depends_on:

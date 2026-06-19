@@ -36,7 +36,7 @@ from django.core.cache import cache
 from shop.cache_utils import (
     key_products_list, key_product_detail, key_stores_list,
     CACHE_TTL_PRODUCTS_LIST, CACHE_TTL_PRODUCT_DETAIL, CACHE_TTL_STORES_LIST,
-    invalidate_product, invalidate_stores,
+    invalidate_product, invalidate_stores, get_data_with_lock
 )
 
 class IsAdminUserRole(permissions.BasePermission):
@@ -142,26 +142,53 @@ def me(request):
 
 shops_logger=logging.getLogger('service.shops')
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_stores(request):
+#     #  try Redis cache first
+#     cache_key = key_stores_list()
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#     # جيب من الداتابيز اذا ريديس فاضية
+#     stores = Store.objects.all()
+#     serializer = StoreSerializer(
+#         stores, many=True, context={'request': request})
+#     data = {
+#         "message": "Stores retrieved successfully",
+#         "stores": serializer.data,
+#         "cache": "MISS",   # remove this field if you don't want it visible
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+#     return Response(data, status=status.HTTP_200_OK)
+
+# After cache and locks
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_stores(request):
-    #  try Redis cache first
     cache_key = key_stores_list()
     cached = cache.get(cache_key)
     if cached is not None:
         cached["cache"] = "HIT"
         shops_logger.info(f" Stores dataset listed |Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
-    # جيب من الداتابيز اذا ريديس فاضية
-    stores = Store.objects.all()
-    serializer = StoreSerializer(
-        stores, many=True, context={'request': request})
-    data = {
-        "message": "Stores retrieved successfully",
-        "stores": serializer.data,
-        "cache": "MISS",   # remove this field if you don't want it visible
-    }
-    cache.set(cache_key, data, CACHE_TTL_STORES_LIST)
+
+    def fetch_stores_list():
+        stores = Store.objects.all()
+        serializer = StoreSerializer(
+            stores, many=True, context={'request': request})
+        return {
+            "message": "Stores retrieved successfully",
+            "stores": serializer.data,
+            "cache": "MISS",
+        }
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_stores_list,
+        ttl=CACHE_TTL_STORES_LIST
+    )
+
     shops_logger.info("Stores dataset listed | Cache: MISS ")
     return Response(data, status=status.HTTP_200_OK)
 
@@ -381,10 +408,30 @@ def search_store(request):
 #     }, status=status.HTTP_200_OK)
 
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def list_products(request):
+#     # REQUIREMENT 6: try Redis cache first
+#     cache_key = key_products_list()
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#
+#     products = Product.objects.all()
+#     serializer = ProductSerializer(products, many=True, context={'request': request})
+#     data = {
+#         "message": "Products retrieved successfully",
+#         "products": serializer.data,
+#         "cache": "MISS",
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+#     return Response(data, status=status.HTTP_200_OK)
+
+
+# After cache and lockd
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_products(request):
-    # REQUIREMENT 6: try Redis cache first
     cache_key = key_products_list()
     cached = cache.get(cache_key)
     if cached is not None:
@@ -392,15 +439,22 @@ def list_products(request):
         shops_logger.info("Products inventory catalog listed | Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
 
-    products = Product.objects.all()
-    serializer = ProductSerializer(
-        products, many=True, context={'request': request})
-    data = {
-        "message": "Products retrieved successfully",
-        "products": serializer.data,
-        "cache": "MISS",
-    }
-    cache.set(cache_key, data, CACHE_TTL_PRODUCTS_LIST)
+    def fetch_products_list():
+        products = Product.objects.all()
+        serializer = ProductSerializer(
+            products, many=True, context={'request': request})
+        return {
+            "message": "Products retrieved successfully",
+            "products": serializer.data,
+            "cache": "MISS",
+        }
+
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_products_list,
+        ttl=CACHE_TTL_PRODUCTS_LIST
+    )
+
     shops_logger.info("Products inventory catalog listed | Cache: MISS")
     return Response(data, status=status.HTTP_200_OK)
 
@@ -511,10 +565,30 @@ def create_product(request):
 #     }, status=status.HTTP_200_OK)
 
 # بعد الكاش
+# @api_view(['GET'])
+# @permission_classes([AllowAny])
+# def retrieve_product(request, id):
+#     # REQUIREMENT 6: try Redis cache first
+#     cache_key = key_product_detail(id)
+#     cached = cache.get(cache_key)
+#     if cached is not None:
+#         return Response(cached, status=status.HTTP_200_OK)
+#
+#     product = get_object_or_404(Product, id=id)
+#     serializer = ProductSerializer(product, context={'request': request})
+#     data = {
+#         "Response Message": "Product retrieved successfully",
+#         "Product": serializer.data,
+#         "cache": "MISS",
+#     }
+#     cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+#     return Response(data, status=status.HTTP_200_OK)
+
+
+# After cache and locks
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def retrieve_product(request, id):
-    # REQUIREMENT 6: try Redis cache first
     cache_key = key_product_detail(id)
     cached = cache.get(cache_key)
     if cached is not None:
@@ -522,16 +596,24 @@ def retrieve_product(request, id):
         shops_logger.info(f"Product layout record detailed | ProductID: {id} | Cache: HIT")
         return Response(cached, status=status.HTTP_200_OK)
 
-    product = get_object_or_404(Product, id=id)
-    serializer = ProductSerializer(product, context={'request': request})
-    data = {
-        "Response Message": "Product retrieved successfully",
-        "Product": serializer.data,
-        "cache": "MISS",
-    }
-    cache.set(cache_key, data, CACHE_TTL_PRODUCT_DETAIL)
+    def fetch_product_data():
+        product = get_object_or_404(Product, id=id)
+        serializer = ProductSerializer(product, context={'request': request})
+        return {
+            "Response Message": "Product retrieved successfully",
+            "Product": serializer.data,
+            "cache": "MISS",
+        }
+
+    data = get_data_with_lock(
+        cache_key=cache_key,
+        db_callback=fetch_product_data,
+        ttl=CACHE_TTL_PRODUCT_DETAIL
+    )
+
     shops_logger.info(f"Product layout record detailed | ProductID: {id} | Cache: MISS")
     return Response(data, status=status.HTTP_200_OK)
+
 
 # After handling the race conditions#######################
 
@@ -1322,10 +1404,20 @@ def create_order(request):
                     idempotency_key=idempotency_key
                 ).first()
                 if existing_order:
+                    # return Response({
+                    #     "Message": "Order already created for this idempotency key",
+                    #     "Order": OrderSerializer(existing_order, context={'request': request}).data
+                    # }, status=status.HTTP_200_OK)
                     order_logger.info(f"Idempotency token cache layer match found | Order processing bypass executed | UserID: {user.id} | OrderID: {existing_order.id} | Key: {idempotency_key}")
                     return Response({
-                        "Message": "Order already created for this idempotency key",
-                        "Order": OrderSerializer(existing_order, context={'request': request}).data
+                    "Message": "Order Created Successfully",
+                    "Order": {
+                        "id": order.id,
+                        "cost": order.cost,
+                        "state": order.state,
+                        "location": order.location,
+                        "pay_status": order.pay_status,
+                    }
                     }, status=status.HTTP_200_OK)
 
                 # lock this user's cart
@@ -1384,15 +1476,15 @@ def create_order(request):
                         id=product_id,
                         quantity__gte=requested_quantity
                     ).update(quantity=F('quantity') - requested_quantity)
-                    product.refresh_from_db()
-                    print("NEW QUANTITY =", product.quantity)
+                    # product.refresh_from_db()
+                    # print("NEW QUANTITY =", product.quantity)
                     if updated_rows == 0:
                         product = Product.objects.get(id=product_id)
                         order_logger.error(f"Concurrency lock update collision while modifying quantities | UserID: {user.id} | ProductID: {product_id}")
                         return Response({
                             "message": f"Sorry, only {product.quantity} left for {product.name}"
                         }, status=status.HTTP_409_CONFLICT)
-                    product_by_id[product_id].refresh_from_db()
+                    # product_by_id[product_id].refresh_from_db()
 
                 Cart.objects.filter(
                     id__in=[item.id for item in cart_items]).delete()
@@ -1454,9 +1546,19 @@ def create_order(request):
     # without celery, this will block the main thread
     # time.sleep(5)
     order_logger.info(f"Order created successfully | UserID: {user.id} | OrderID: {order.id} | Final Invoice Cost: {total_cost} | Background notification worker triggered")
+    # return Response({
+    #     "Message": "Order Created Successfully",
+    #     "Order": OrderSerializer(order, context={'request': request}).data
+    # }, status=status.HTTP_200_OK)
     return Response({
-        "Message": "Order Created Successfully",
-        "Order": OrderSerializer(order, context={'request': request}).data
+    "Message": "Order Created Successfully",
+    "Order": {
+        "id": order.id,
+        "cost": total_cost,
+        "state": order.state,
+        "location": order.location,
+        "pay_status": order.pay_status,
+    }
     }, status=status.HTTP_200_OK)
 
 
