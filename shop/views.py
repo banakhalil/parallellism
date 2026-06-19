@@ -1355,7 +1355,7 @@ def create_order(request):
                     "Message": "Order Created Successfully",
                     "Order": {
                         "id": order.id,
-                        "cost": total_cost,
+                        "cost": order.cost,
                         "state": order.state,
                         "location": order.location,
                         "pay_status": order.pay_status,
