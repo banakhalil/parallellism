@@ -20,6 +20,20 @@ docker compose --profile seed run --rm seed
 لنعيد تعباية الكارت بس
 docker compose run --rm migrate python manage.py shell -c "exec(open('seed_carts.py', encoding='utf-8').read())"
 
+تيست الكاش
+locust -f locustfile_cache_test.py --host=http://127.0.0.1:8080
+
+redis-cli CONFIG RESETSTAT
+redis-cli INFO stats (or -n 1)
+
+docker compose restart nginx
+
+الطلب 4
+docker compose --profile batch run --rm batch
+
+docker compose ps
+http://localhost:9090/targets
+
 بس بدنا نطفيه
 docker compose down
 
