@@ -27,30 +27,15 @@ def key_stores_list():
 
 
 def invalidate_product(product_id):
-    """Call this whenever a product is created, updated, or deleted."""
     cache.delete(key_product_detail(product_id))
     cache.delete(key_products_list())
 
 
 def invalidate_stores():
-    """Call this whenever a store is created, updated, or deleted."""
     cache.delete(key_stores_list())
 
 
-# cache_utils.py
-
-
-# ... (keep your existing constants and key functions) ...
-
 def get_data_with_lock(cache_key, db_callback, ttl):
-    """
-    Retrieves data from cache. If missing, uses a Redis lock to ensure
-    only one request fetches from the database.
-
-    :param cache_key: The key for the cache
-    :param db_callback: A function (lambda) that runs the DB query
-    :param ttl: Time to live for the cache
-    """
     data = cache.get(cache_key)
     if data is not None:
         return data

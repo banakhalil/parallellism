@@ -6,11 +6,11 @@ import time
 from itertools import cycle
 
 
-
 product_id = 19
 PRODUCT_NAME = "Nature Magazine test 4"
 
-class AuthenticatedUser(HttpUser):   #to authenticate users
+
+class AuthenticatedUser(HttpUser):  # to authenticate users
     abstract = True
     wait_time = between(1, 2)
 
@@ -40,8 +40,8 @@ class AuthenticatedUser(HttpUser):   #to authenticate users
         }
 
 
-
-class UpdateRaceUser(AuthenticatedUser):  #to test 2 admins trying to update the same row at the same time, there must be 2 admins and the store and the product in the database
+# to test 2 admins trying to update the same row at the same time, there must be 2 admins and the store and the product in the database
+class UpdateRaceUser(AuthenticatedUser):
 
     @task
     def concurrent_quantity_update(self):
@@ -81,7 +81,8 @@ class UpdateRaceUser(AuthenticatedUser):  #to test 2 admins trying to update the
         )
 
 
-class DeleteRaceUser(AuthenticatedUser):#to test 2 admins trying to delete the same row at the same time, there must be 2 admins and the store and the product in the database
+# to test 2 admins trying to delete the same row at the same time, there must be 2 admins and the store and the product in the database
+class DeleteRaceUser(AuthenticatedUser):
 
     @task
     def concurrent_delete_product(self):
@@ -111,9 +112,8 @@ class DeleteRaceUser(AuthenticatedUser):#to test 2 admins trying to delete the s
         )
 
 
-
-
-class CartDeleteRaceUser(AuthenticatedUser): # to test an admin trying to delete a produt that is in a customer cart, there must be an admin, a customer with cart,store, product in the database
+# to test an admin trying to delete a produt that is in a customer cart, there must be an admin, a customer with cart,store, product in the database
+class CartDeleteRaceUser(AuthenticatedUser):
 
     @task
     def add_to_cart_during_delete(self):
@@ -148,7 +148,9 @@ class CartDeleteRaceUser(AuthenticatedUser): # to test an admin trying to delete
             f"CART status={cart_response.status_code}"
         )
 
-class AdminDeleteUser(AuthenticatedUser): #test the admin tries to delete a product
+
+# test the admin tries to delete a product
+class AdminDeleteUser(AuthenticatedUser):
 
     @task
     def delete_product(self):
@@ -167,11 +169,9 @@ class AdminDeleteUser(AuthenticatedUser): #test the admin tries to delete a prod
         )
 
 
-
-
-
-class OrderRaceUser(HttpUser): #two users try to create order with the last item left from the product (product quantity = 1 )
-#there must me two authenticated users with these credentials in the database
+# two users try to create order with the last item left from the product (product quantity = 1 )
+class OrderRaceUser(HttpUser):
+    # there must me two authenticated users with these credentials in the database
     wait_time = between(0.1, 0.2)
 
     user_cycle = cycle([
@@ -251,11 +251,13 @@ class OrderRaceUser(HttpUser): #two users try to create order with the last item
 
 #
 
+
 order_id = 37
 
 
-class WalletPaymentRaceUser(HttpUser): # to test two payment requests at the same time (like pressing the "pay" button twice)
-#there must be an order and a user with the credentials
+# to test two payment requests at the same time (like pressing the "pay" button twice)
+class WalletPaymentRaceUser(HttpUser):
+    # there must be an order and a user with the credentials
 
     wait_time = between(0.1, 0.2)
 
@@ -303,8 +305,9 @@ class WalletPaymentRaceUser(HttpUser): # to test two payment requests at the sam
         self.stop(True)
 
 
-class CancelOrderRaceUser(HttpUser): #to test cancelling payment requests at the same time (like pressing the "cancel" button twice)
-#there must be an order and a user with the credentials
+# to test cancelling payment requests at the same time (like pressing the "cancel" button twice)
+class CancelOrderRaceUser(HttpUser):
+    # there must be an order and a user with the credentials
 
     wait_time = between(0.1, 0.2)
 
