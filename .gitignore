@@ -18,3 +18,11 @@ stores/
 # إعدادات VS Code الخاصة بك
 .vscode/
 
+# Logs
+logs/
+auth/
+cart/
+favorite/
+order/
+shops/
+*.log
