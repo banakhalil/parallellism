@@ -83,7 +83,7 @@ services:
     <<: *django_base
     command: >
       waitress-serve --host=0.0.0.0 --threads=100 --connection-limit=2000
-                     --backlog=2048 --port=8001 core.wsgi:application
+                     --backlog=2048 --port=8002 core.wsgi:application
     expose:
       - "8002"
     depends_on:
@@ -94,7 +94,7 @@ services:
     <<: *django_base
     command: >
       waitress-serve --host=0.0.0.0 --threads=100 --connection-limit=2000
-                     --backlog=2048 --port=8001 core.wsgi:application
+                     --backlog=2048 --port=8003 core.wsgi:application
     expose:
       - "8003"
     depends_on:
